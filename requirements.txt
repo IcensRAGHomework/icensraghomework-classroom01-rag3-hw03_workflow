@@ -1,0 +1,4 @@
+pytest
+chromadb==0.5.20
+openai==1.56.0
+pandas==2.2.3

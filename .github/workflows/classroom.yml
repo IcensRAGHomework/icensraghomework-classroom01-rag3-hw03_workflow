@@ -1,0 +1,138 @@
+name: Autograding Tests
+'on': [push]
+
+jobs:
+  autograding:
+    runs-on: ubuntu-latest
+    env:
+      AZURE_OPENAI_TYPE: ${{ vars.AZURE_OPENAI_TYPE }} 
+      AZURE_OPENAI_VERSION: ${{ vars.AZURE_OPENAI_VERSION }}
+      AZURE_OPENAI_EMBEDDING_ENDPOINT: ${{ vars.AZURE_OPENAI_EMBEDDING_ENDPOINT }}
+      AZURE_OPENAI_DEPLOYMENT_EMBEDDING: ${{ vars.AZURE_OPENAI_DEPLOYMENT_EMBEDDING }}
+      AZURE_OPENAI_DEPLOYMENT_EMBEDDING_MODEL_NAME: ${{ vars.AZURE_OPENAI_DEPLOYMENT_EMBEDDING_MODEL_NAME }}
+      AZURE_OPENAI_EMBEDDING_KEY: ${{ secrets.AZURE_OPENAI_EMBEDDING_KEY }}
+
+    steps:
+      - name: Checkout student code
+        uses: actions/checkout@v4
+
+      - name: Debug environment variables
+        run: |
+          echo "AZURE_OPENAI_TYPE=${{ vars.AZURE_OPENAI_TYPE }}"
+          echo "AZURE_OPENAI_VERSION=${{ vars.AZURE_OPENAI_VERSION }}"
+          echo "AZURE_OPENAI_EMBEDDING_ENDPOINT=${{ vars.AZURE_OPENAI_EMBEDDING_ENDPOINT }}"
+          echo "AZURE_OPENAI_DEPLOYMENT_EMBEDDING=${{ vars.AZURE_OPENAI_DEPLOYMENT_EMBEDDING }}"
+          echo "AZURE_OPENAI_DEPLOYMENT_EMBEDDING_MODEL_NAME=${{ vars.AZURE_OPENAI_DEPLOYMENT_EMBEDDING_MODEL_NAME }}"
+          echo "AZURE_OPENAI_EMBEDDING_KEY is set"
+
+      - name: Create .env file
+        run: |
+          echo "AZURE_OPENAI_TYPE=${{ vars.AZURE_OPENAI_TYPE }}" >> .env
+          echo "AZURE_OPENAI_VERSION=${{ vars.AZURE_OPENAI_VERSION }}" >> .env
+          echo "AZURE_OPENAI_EMBEDDING_ENDPOINT=${{ vars.AZURE_OPENAI_EMBEDDING_ENDPOINT }}" >> .env
+          echo "AZURE_OPENAI_DEPLOYMENT_EMBEDDING=${{ vars.AZURE_OPENAI_DEPLOYMENT_EMBEDDING }}" >> .env
+          echo "AZURE_OPENAI_DEPLOYMENT_EMBEDDING_MODEL_NAME=${{ vars.AZURE_OPENAI_DEPLOYMENT_EMBEDDING_MODEL_NAME }}" >> .env
+          echo "AZURE_OPENAI_EMBEDDING_KEY=${{ secrets.AZURE_OPENAI_EMBEDDING_KEY }}" >> .env
+    
+      - name: Download teacher's test repository
+        env:
+          GITHUB_TOKEN: ${{ secrets.ORG_PAT_TOKEN }}
+        run: |
+          git clone https://${{ secrets.ORG_PAT_TOKEN }}@github.com/IcensRAGHomework/assignment-tests-hw03.git temp-tests
+
+      # Step 1: Cache requirements.txt
+      - name: Cache requirements.txt
+        id: cache-requirements
+        uses: actions/cache@v3
+        with:
+          path: requirements.txt
+          key: ${{ runner.os }}-requirements-${{ hashFiles('requirements.txt') }}
+
+      # Step 2: Cache Python environment
+      - name: Cache Python environment
+        id: cache-env
+        uses: actions/cache@v3
+        with:
+          path: .venv
+          key: ${{ runner.os }}-env-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-env-
+
+      # Step 3: Install dependencies if needed
+      - name: Install dependencies
+        if: steps.cache-env.outputs.cache-hit != 'true'
+        run: |
+          python -m venv .venv
+          source .venv/bin/activate
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # Step 4: Save updated Python environment to cache
+      - name: Save updated Python environment
+        if: steps.cache-env.outputs.cache-hit != 'true'
+        uses: actions/cache@v3
+        with:
+          path: .venv
+          key: ${{ runner.os }}-env-${{ steps.cache-requirements.outputs.cache-hit }}
+
+      # Step 5: Prepare tests
+      - name: Prepare tests
+        run: |
+          source .venv/bin/activate
+          cp temp-tests/test_assignment.py .
+
+      - name: Debug Python Environment
+        run: |
+          echo "Python Version:"
+          .venv/bin/python --version || echo "Python binary not found!"
+          echo "Installed packages:"
+          .venv/bin/pip freeze || echo "pip freeze failed!"
+          echo "Listing .venv directory:"
+          ls -la .venv || echo ".venv directory not found!"
+    
+      # Step 6-1: Run test_hw03_1 and calculate score By autograding
+      - name: Run test_hw03_1 and calculate score By autograding
+        id: PytestCase1
+        uses: classroom-resources/autograding-command-grader@v1
+        with:
+          test-name: Case1
+          command: |
+            .venv/bin/python -m pytest test_assignment.py::test_hw03_1
+          timeout: 15
+          max-score: 1
+
+      # Step 6-2: Run test_hw03_2 and calculate score By autograding
+      - name: Run test_hw03_2 and calculate score By autograding
+        id: PytestCase2
+        uses: classroom-resources/autograding-command-grader@v1
+        with:
+          test-name: Case2
+          command: '.venv/bin/python -m pytest test_assignment.py::test_hw03_2'
+          timeout: 20
+          max-score: 1
+
+      # Step 6-3: Run test_hw03_3 and calculate score By autograding
+      - name: Run test_hw03_3 and calculate score By autograding
+        id: PytestCase3
+        uses: classroom-resources/autograding-command-grader@v1
+        with:
+          test-name: Case3
+          command: '.venv/bin/python -m pytest test_assignment.py::test_hw03_3'
+          timeout: 20
+          max-score: 1
+
+      - name: Debug Test Results
+        run: |
+          echo "Result for Case1: ${{ steps.PytestCase1.outputs.result || 0 }}"
+          echo "Result for Case2: ${{ steps.PytestCase2.outputs.result || 0 }}"
+          echo "Result for Case3: ${{ steps.PytestCase3.outputs.result || 0 }}"
+  
+      # Step 7: Autograding Reporter
+      - name: Autograding Reporter
+        uses: classroom-resources/autograding-grading-reporter@v1
+        env:
+          PYTESTCASE1_RESULTS: "${{steps.PytestCase1.outputs.result}}"
+          PYTESTCASE2_RESULTS: "${{steps.PytestCase2.outputs.result}}"
+          PYTESTCASE3_RESULTS: "${{steps.PytestCase3.outputs.result}}"
+        with:
+          runners: PytestCase1,PytestCase2,PytestCase3
